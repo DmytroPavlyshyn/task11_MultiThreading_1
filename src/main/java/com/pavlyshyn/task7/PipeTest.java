@@ -5,25 +5,28 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.Pipe;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class PipeTest {
-    Pipe pipe;
 
-    public PipeTest() throws IOException {
+    private Pipe pipe;
+    private String path;
+    private final int BUFFER_SIZE = 256;
+    public PipeTest(String path) throws IOException {
         this.pipe = Pipe.open();
-        pipe.sink().configureBlocking(false);
+        //pipe.sink().configureBlocking(false);
+        pipe.source().configureBlocking(false);
+
+        this.path = path;
     }
 
-    void readFromFileToPipe() {                  //TODO
-        try (
-                BufferedReader reader = new BufferedReader(new FileReader("src/main/java/com.pavlyshyn.task7/poem.txt"))
-        ) {
-            Pipe.SinkChannel sinkChannel = pipe.sink();
-
+    private void readFromFileToPipe() {
+        try (BufferedReader reader = new BufferedReader(new FileReader(path),BUFFER_SIZE);
+             Pipe.SinkChannel sinkChannel = pipe.sink()) {
             String line;
             while ((line = reader.readLine()) != null) {
                 sinkChannel.write(ByteBuffer.wrap((line + '\n').getBytes()));
-
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -31,30 +34,35 @@ public class PipeTest {
         }
     }
 
-    void readFromPipe() throws IOException {    //TODO
-        Pipe.SourceChannel sourceChannel = pipe.source();
-        ByteBuffer buffer = ByteBuffer.allocate(256);
-        int what = 0;
-        while (sourceChannel.read(buffer) != -1) {
+    private void readFromPipe() {
+        try (Pipe.SourceChannel sourceChannel = pipe.source()) {
+
+
+            ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
+
+            while (sourceChannel.read(buffer) != -1) {
+                buffer.flip();
+                System.out.print(new String(buffer.array()));
+                buffer.clear();
+            }
+            sourceChannel.read(buffer);
             buffer.flip();
-            System.out.print(new String(buffer.array()));
+            System.out.println(new String(buffer.array()));
             buffer.clear();
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
 
-    public static void main(String[] args) throws IOException, InterruptedException {
-        PipeTest pipeTest = new PipeTest();
-        new Thread(() -> {
-            try {
-                pipeTest.readFromPipe();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }).start();
-        new Thread(() -> {
-            pipeTest.readFromFileToPipe();
+    void start() {
+        ExecutorService service = Executors.newFixedThreadPool(2);
+        service.submit(this::readFromFileToPipe);
+        service.submit(this::readFromPipe);
+        service.shutdown();
+    }
 
-        }).start();
-
+    public static void main(String[] args) throws IOException {
+        PipeTest pipeTest = new PipeTest("src/main/java/com/pavlyshyn/task7/poem.txt");
+        pipeTest.start();
     }
 }
